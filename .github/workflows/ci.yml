@@ -1,0 +1,31 @@
+name: CI
+
+# A Zed extension is distributed as source — the registry compiles the Rust to a
+# wasm32-wasip2 component on Zed's side — so there is no artifact to ship from here. CI is
+# the gate that it still compiles: a package that does not build should not be publishable.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip2
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build (validate)
+        run: cargo build --release --locked --target wasm32-wasip2

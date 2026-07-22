@@ -1,0 +1,48 @@
+name: Release
+
+# Manual. Zed installs an extension from source referenced by a git tag, so a "release"
+# here is: gate on a wasm build, then cut a tagged GitHub Release with the source bundle.
+# Getting it into the public registry is a separate, manual step — open a PR against
+# zed-industries/extensions pointing at this repo and the tag this workflow created.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, e.g. v0.1.0"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip2
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build (validate)
+        run: cargo build --release --locked --target wasm32-wasip2
+
+      - name: Bundle source
+        run: |
+          set -eux
+          tar -czf zed-neon-extension.tar.gz \
+            extension.toml Cargo.toml Cargo.lock src languages README.md
+
+      - name: Publish to release ${{ inputs.tag }}
+        run: |
+          set -eux
+          gh release view "${{ inputs.tag }}" >/dev/null 2>&1 \
+            || gh release create "${{ inputs.tag }}" --title "${{ inputs.tag }}" --notes "neon-zed ${{ inputs.tag }} — add to Zed via a PR to zed-industries/extensions."
+          gh release upload "${{ inputs.tag }}" zed-neon-extension.tar.gz --clobber

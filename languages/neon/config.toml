@@ -1,4 +1,5 @@
 name = "Neon"
+grammar = "neon"
 path_suffixes = ["neon"]
 
 # `//` line comments and `///` doc comments (compiler/src/lexer/trivia.rs, TriviaKind).
@@ -22,13 +23,6 @@ brackets = [
     { start = "\"", end = "\"", close = true, newline = false },
 ]
 
-# No `grammar` key -- yet. A Neon grammar exists, in this repository, at
-# `extra/tree-sitter-neon`. The repository now has a remote
-# (https://github.com/jkbbwr/neon), but Zed fetches a grammar from a repository *root* and
-# this grammar sits at a subpath, so it is not yet a one-line wire-up. The reasoning is
-# spelled out at the bottom of `../../extension.toml`, beside the `[grammars.neon]` block
-# that has to be filled in at the same time as this line becomes `grammar = "neon"`.
-#
-# Zed's LanguageConfig makes `grammar` optional, so until then the language
-# registers and `neon-lsp` attaches; only tree-sitter features are absent.
-# See ../../README.md.
+# `grammar = "neon"` (set at the top) binds this language to the `[grammars.neon]` block in
+# ../../extension.toml, which fetches neon-tube/tree-sitter-neon by revision. The highlight
+# queries Zed uses are in highlights.scm beside this file. See ../../README.md.

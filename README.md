@@ -46,9 +46,8 @@ Inlay hints are controlled by Zed's own `inlay_hints` setting, per language:
 
 ## Install as a dev extension
 
-The extension is a Rust crate compiled to WebAssembly. `extra/` is excluded from the root
-Cargo workspace (see the root `Cargo.toml`) precisely so this crate is not built for the
-host target as a workspace member.
+The extension is a Rust crate that Zed compiles to WebAssembly (`wasm32-wasip2`); its own
+repository, with its own `Cargo.toml`.
 
 1. Install the wasm target once:
 
@@ -65,7 +64,7 @@ host target as a workspace member.
    ```
 
 3. In Zed, open the command palette and run **`zed: install dev extension`**, then select
-   this directory (`extra/zed`). Zed compiles the crate itself; you do not need to run
+   this directory (this repo). Zed compiles the crate itself; you do not need to run
    `cargo build` here.
 
 After editing anything in this directory, run **`zed: reload extensions`**.
@@ -129,79 +128,31 @@ To format on save, add:
 A file that does not parse is left untouched by the formatter — it reprints from the AST,
 so a half-written line produces no edits rather than an error popup.
 
-## Why there is no highlighting
+## Highlighting
 
-Zed highlights via tree-sitter, and a grammar must be fetched from a **git repository plus
-revision**:
+Wired. The grammar is [`tree-sitter-neon`](https://github.com/neon-tube/tree-sitter-neon),
+its own repository whose root *is* the grammar — exactly the layout Zed's `[grammars.neon]`
+fetch (by `repository` + `rev`) needs. `extension.toml` pins it by commit sha, and
+`languages/neon/config.toml` sets `grammar = "neon"`.
 
-```toml
-[grammars.neon]
-repository = "https://github.com/..."
-rev = "..."
-```
+The highlight queries Zed uses are in `languages/neon/highlights.scm` — a copy of the
+grammar's `queries/highlights.scm` with **coarse capture duplicates** added. The grammar is
+written in Neovim's fine-grained vocabulary (`@keyword.conditional`, `@variable.member`,
+`@type.definition`, `@number.float`, …), and Zed maps a capture it does not recognise to
+*nothing*, so each fine capture carries its coarse root (`@keyword`, `@variable`, `@type`,
+`@number`, …) beside it. Predicate lines (`#any-of?`) are left untouched. Only
+`highlights.scm` is brought across so far; Zed-flavoured `indents.scm`/`outline.scm` are a
+later refinement — bracket and indent behaviour come from `config.toml` in the meantime.
 
-`GrammarManifestEntry` in Zed's source makes `repository` and `rev` required and offers no
-local-path option, so a grammar cannot be vendored into this directory and used.
+The grammar's external scanner is mandatory, not optional: Neon's block comments nest, no
+regular expression can count, and the depth is tracked in `src/scanner.c`, which Zed
+compiles automatically because it is present in `src/`.
 
-**The grammar is no longer the missing piece.** A complete one lives in this repository at
-[`extra/tree-sitter-neon`](../tree-sitter-neon): written against `compiler/src/lexer/token.rs`,
-`compiler/src/parser/mod.rs` and `compiler/src/ops.rs` rather than against the docs, parsing
-308 of the 310 `.neon` files in `tests/lang/` and `stdlib/` cleanly — the two exceptions are
-`//@ compile-fail` fixtures that are supposed to be malformed — with `highlights.scm`,
-`indents.scm`, `locals.scm` and `textobjects.scm` alongside it.
-
-What is missing is a **fetchable grammar root**. The repository has a remote —
-`https://github.com/jkbbwr/neon` — so a `repository` URL now exists. But Zed fetches a
-grammar from the *root* of that repository, and this grammar lives at the subpath
-`extra/tree-sitter-neon`, so `jkbbwr/neon` on its own does not resolve to a grammar. That is
-the remaining blocker: a packaging decision (a dedicated grammar repo, or a Zed that accepts
-a subpath), not a missing URL.
-
-Zed's `LanguageConfig.grammar` field is `Option<Arc<str>>`, so omitting it is supported
-rather than a hack: the language registers, the file type is recognised, and the language
-server attaches. Only tree-sitter-driven features (highlighting, structural selection,
-code folding by syntax) are absent.
-
-### Fixing it, once the grammar has a fetchable root
-
-Three edits, all of them small:
-
-1. Add the block to `extension.toml`, pinning a **commit sha** — Zed resolves by revision,
-   not by branch. The `repository` is `https://github.com/jkbbwr/neon` if a newer Zed
-   accepts a grammar subpath, otherwise a dedicated grammar repository whose root is the
-   grammar:
-
-   ```toml
-   [grammars.neon]
-   repository = "https://github.com/jkbbwr/neon"
-   rev = "…"
-   ```
-
-2. Set `grammar = "neon"` in `languages/neon/config.toml`.
-3. Copy `extra/tree-sitter-neon/queries/highlights.scm` (and `indents.scm`) into
-   `languages/neon/` — **and widen the capture names while copying.** The queries use
-   Neovim's fine-grained vocabulary (`@keyword.conditional`, `@variable.member`,
-   `@type.definition`, `@function.method`, `@number.float`, `@module`, `@error`). Zed maps
-   a capture it does not recognise to *nothing* rather than to a fallback, so a verbatim
-   copy leaves large regions unstyled. Add coarse duplicates (`@keyword`, `@property`,
-   `@type`, `@number`) beside the fine ones. This is written up under "Capture-name
-   divergence" in the grammar's README.
-
-Note that the grammar's external scanner is mandatory, not optional: Neon's block comments
-nest, no regular expression can count, and the depth is tracked in `src/scanner.c`. Zed
-compiles `scanner.c` automatically when it is present in `src/`, which it is.
-
-### A warning about older grammars
-
-`github.com/jkbbwr/neon` now hosts *this* repository, whose grammar is the current one at
-`extra/tree-sitter-neon`. But an older Neon grammar circulated before this — with
-`enum_declaration`, `if_let_expr`, `map_init` and `type_nullable`, none of which exist now,
-no rule for string interpolation, `marker`, `bench` or `assert_throws`, and entirely
-different node names (`binary_expr` against `binary_expression`, `int_literal` against
-`integer`, and so on). Do not point Zed at any such copy. Queries written for the current
-grammar do not merely degrade against it, they fail to compile — observed in practice, in
-Neovim: an installed copy of the old parser makes the new `highlights.scm` error out with
-`Invalid node type "doc_comment"`. If you pin a `rev`, pin one from the current history.
+**A warning about older grammars.** An early Neon grammar circulated with different node
+names (`binary_expr` vs `binary_expression`, `int_literal` vs `integer`, `enum_declaration`,
+`if_let_expr`, …). Queries written for the current grammar do not degrade against it, they
+fail to compile (`Invalid node type "doc_comment"`). If you pin a `rev`, pin one from the
+current [tree-sitter-neon](https://github.com/neon-tube/tree-sitter-neon) history.
 
 ## What has and has not been verified
 
