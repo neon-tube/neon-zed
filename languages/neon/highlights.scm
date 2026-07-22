@@ -46,6 +46,7 @@
 [
   "record"
   "opaque"
+  "sealed"
   "newtype"
   "type"
   "mu"
